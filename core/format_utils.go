@@ -42,7 +42,10 @@ func LoadFromJson(filePath string, any interface{}) {
 	if err != nil {
 		Throw(err)
 	}
-	json.Unmarshal(jsonData, any)
+	jsonData = bytes.TrimPrefix(jsonData, []byte{0xEF, 0xBB, 0xBF})
+	if err := json.Unmarshal(jsonData, any); err != nil {
+		Throw(err)
+	}
 }
 
 type CsvSupported interface {
@@ -56,6 +59,10 @@ func GoStrToCsvStr(str string) string {
 
 func CsvStrToGoStr(str string) string {
 	return strings.ReplaceAll(str, "<br>", "\r\n")
+}
+
+func TrimUTF8BOM(str string) string {
+	return strings.TrimPrefix(str, string([]byte{0xEF, 0xBB, 0xBF}))
 }
 
 func LoadFromCsv(filePath string, obj CsvSupported) {

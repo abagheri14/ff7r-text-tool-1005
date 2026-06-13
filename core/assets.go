@@ -361,7 +361,7 @@ func (uexp *Uexp) ReadFromCsv(r *csv.Reader) {
 		} else if len(row) != 3 {
 			Throw("each row should has 3 items in csv")
 		}
-		id := row[0]
+		id := TrimUTF8BOM(row[0])
 		if id == "id" {
 			continue // first row
 		} else if id == "language" {
