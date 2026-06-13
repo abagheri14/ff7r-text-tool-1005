@@ -16,10 +16,13 @@ var LANG_LIST = []string{
 }
 
 type Uexp struct {
-	head    []byte
-	Lang    string  `json:"language"`
-	noneId  []byte  // name map id for "None"
-	Entries []Entry `json:"entries,omitempty"`
+	head           []byte
+	Lang           string  `json:"language"`
+	noneId         []byte  // name map id for "None"
+	hasEntryHeader bool    // FF7R2 empty assets can end before the null/count fields.
+	hasEntryNull   bool    // FF7R2 1.005 assets can omit the null before entry count.
+	rawEntryIds    bool    // FF7R2 1.005 no-null entries use null-terminated ids.
+	Entries        []Entry `json:"entries,omitempty"`
 }
 
 type ZenPackageSummary struct {
@@ -48,6 +51,108 @@ func (s *ZenPackageSummary) GetUassetEndOffset() int {
 	return int(s.GraphDataOffset + s.GraphDataSize)
 }
 
+func isKnownLang(lang string) bool {
+	return slices.Contains(LANG_LIST, lang)
+}
+
+func readUint32At(s *Serializer, offset int) (uint32, bool) {
+	if offset < 0 || offset+4 > s.endOffset {
+		return 0, false
+	}
+	oldOffset := s.GetOffset()
+	s.Seek(offset, 0)
+	buf := s.Read(4)
+	s.Seek(oldOffset, 0)
+	return s.order.Uint32(buf), true
+}
+
+func readFF7R2LangAt(s *Serializer, offset int) (string, int, bool) {
+	strlen, ok := readUint32At(s, offset)
+	if !ok || strlen != 3 {
+		return "", offset, false
+	}
+
+	valueOffset := offset + 4
+	if valueOffset+int(strlen) > s.endOffset {
+		return "", offset, false
+	}
+
+	oldOffset := s.GetOffset()
+	s.Seek(valueOffset, 0)
+	buf := s.Read(int(strlen))
+	s.Seek(oldOffset, 0)
+
+	if len(buf) != 3 || buf[2] != 0 {
+		return "", offset, false
+	}
+
+	lang := string(buf[:2])
+	return lang, valueOffset + int(strlen), isKnownLang(lang)
+}
+
+func findFF7R2UexpHeadSize(s *Serializer, uexpStart int) (int, bool) {
+	for headSize := 0; headSize <= ff7r2MaxUexpHeadSize; headSize++ {
+		lang, nextOffset, ok := readFF7R2LangAt(s, uexpStart+headSize)
+		if !ok || !isKnownLang(lang) {
+			continue
+		}
+
+		countOffset := nextOffset + 4 // FF7R2 1.005 uses a 4-byte name id for "None".
+		entryCount, ok := readUint32At(s, countOffset)
+		if ok && entryCount < 65536 && (entryCount > 0 || countOffset+4 == s.endOffset) {
+			return headSize, true
+		}
+
+		nullOffset := nextOffset + 8 // Skip the name map id for "None".
+		if nullOffset == s.endOffset {
+			return headSize, true
+		}
+		nullValue, ok := readUint32At(s, nullOffset)
+		if !ok {
+			continue
+		}
+		if nullValue != 0 {
+			if nullValue < 65536 {
+				return headSize, true
+			}
+			continue
+		}
+
+		entryCount, ok = readUint32At(s, nullOffset+4)
+		if !ok || entryCount >= 65536 {
+			continue
+		}
+		return headSize, true
+	}
+	return 0, false
+}
+
+func findFF7R2UexpStart(s *Serializer, expectedOffset int) (int, bool) {
+	if _, ok := findFF7R2UexpHeadSize(s, expectedOffset); ok {
+		return expectedOffset, true
+	}
+
+	back := min(ff7r2UexpStartScanBack, expectedOffset)
+	ahead := min(ff7r2UexpStartScanAhead, s.endOffset-expectedOffset)
+	maxDistance := max(back, ahead)
+
+	for distance := 1; distance <= maxDistance; distance++ {
+		if distance <= back {
+			offset := expectedOffset - distance
+			if _, ok := findFF7R2UexpHeadSize(s, offset); ok {
+				return offset, true
+			}
+		}
+		if distance <= ahead {
+			offset := expectedOffset + distance
+			if _, ok := findFF7R2UexpHeadSize(s, offset); ok {
+				return offset, true
+			}
+		}
+	}
+	return expectedOffset, false
+}
+
 type Uasset struct {
 	Names   []string
 	rawBin  []byte
@@ -59,31 +164,74 @@ type Uasset struct {
 var HEAD_MAGIC = []byte{0x00, 0x03}
 var UNREAL_SIGNATURE = []byte{0xC1, 0x83, 0x2A, 0x9E}
 
+const (
+	ff7r2DefaultUexpHeadSize = 25
+	ff7r2MaxUexpHeadSize     = 128
+	ff7r2UexpStartScanBack   = 1024
+	ff7r2UexpStartScanAhead  = 65536
+)
+
 func (uexp *Uexp) Read(s *Serializer) {
+	uexp.hasEntryHeader = true
+	uexp.hasEntryNull = true
+	uexp.rawEntryIds = false
 	if s.Ver == VER_FF7R {
 		uexp.head = s.Read(2)
 	} else if s.Ver >= VER_FF7R2 {
-		uexp.head = s.Read(25)
+		headSize := ff7r2DefaultUexpHeadSize
+		if detectedHeadSize, ok := findFF7R2UexpHeadSize(s, s.GetOffset()); ok {
+			headSize = detectedHeadSize
+		}
+		uexp.head = s.Read(headSize)
 	}
 
 	uexp.Lang = s.ReadString()
 
-	if !slices.Contains(LANG_LIST, uexp.Lang) {
+	if !isKnownLang(uexp.Lang) {
 		Throw(fmt.Errorf("unknown language detected. (%s)", uexp.Lang))
 	}
 
+	var entryCount uint32
 	if s.Ver != VER_FF7R {
-		uexp.noneId = s.Read(8)
+		noneOffset := s.GetOffset()
+		if count, ok := readUint32At(s, noneOffset+4); ok &&
+			count < 65536 &&
+			(count > 0 || noneOffset+8 == s.endOffset) {
+			uexp.noneId = s.Read(4)
+			uexp.hasEntryNull = false
+			entryCount = s.ReadUint32()
+		} else {
+			uexp.noneId = s.Read(8)
+			if s.GetOffset() == s.endOffset {
+				uexp.hasEntryHeader = false
+				uexp.Entries = []Entry{}
+				return
+			}
+			value, ok := readUint32At(s, s.GetOffset())
+			if !ok {
+				Throw("EOF")
+			}
+			if value == 0 {
+				uexp.hasEntryNull = true
+				s.ReadNull()
+				entryCount = s.ReadUint32()
+			} else {
+				uexp.hasEntryNull = false
+				uexp.rawEntryIds = true
+				entryCount = s.ReadUint32()
+			}
+		}
+	} else {
+		s.ReadNull()
+		entryCount = s.ReadUint32()
 	}
-	s.ReadNull()
-	entryCount := s.ReadUint32()
 	if entryCount >= 65536 {
 		Throw(fmt.Errorf("unexpected entry count: %d", entryCount))
 	}
 	uexp.Entries = make([]Entry, 0, entryCount)
 	for range entryCount {
 		e := Entry{}
-		e.Read(s)
+		e.ReadWithOptions(s, uexp.rawEntryIds)
 		uexp.Entries = append(uexp.Entries, e)
 	}
 
@@ -103,11 +251,16 @@ func (uexp *Uexp) Write(s *Serializer) {
 	if s.Ver != VER_FF7R {
 		s.Write(uexp.noneId)
 	}
-	s.WriteNull()
+	if s.Ver != VER_FF7R && !uexp.hasEntryHeader {
+		return
+	}
+	if uexp.hasEntryNull {
+		s.WriteNull()
+	}
 	entryCount := len(uexp.Entries)
 	s.WriteUint32(uint32(entryCount))
 	for i := range entryCount {
-		uexp.Entries[i].Write(s)
+		uexp.Entries[i].WriteWithOptions(s, uexp.rawEntryIds)
 	}
 
 	if s.Ver == VER_FF7R {
@@ -116,10 +269,16 @@ func (uexp *Uexp) Write(s *Serializer) {
 }
 
 func (uexp *Uexp) GetBinSize() int {
-	size := 8 + len(uexp.head) + len(uexp.noneId)
+	size := len(uexp.head) + len(uexp.noneId)
 	size += GetStringBinSize(uexp.Lang)
+	if uexp.hasEntryHeader {
+		size += 4
+		if uexp.hasEntryNull {
+			size += 4
+		}
+	}
 	for i := range len(uexp.Entries) {
-		size += uexp.Entries[i].GetBinSize()
+		size += uexp.Entries[i].GetBinSizeWithOptions(uexp.rawEntryIds)
 	}
 	return size
 }
@@ -275,8 +434,12 @@ func (uasset *Uasset) Read(s *Serializer) {
 			uasset.Names = append(uasset.Names, name)
 		}
 		uassetEndOffset := uasset.Summary.GetUassetEndOffset()
+		uexpStartOffset, _ := findFF7R2UexpStart(s, uassetEndOffset)
+		if uexpStartOffset < 0 || uexpStartOffset > s.endOffset {
+			Throw(fmt.Errorf("unexpected uasset end offset: %d", uexpStartOffset))
+		}
 		s.Seek(0, 0)
-		uasset.rawBin = s.Read(uassetEndOffset)
+		uasset.rawBin = s.Read(uexpStartOffset)
 
 	} else {
 		Throw(fmt.Errorf("unexpected fourCC: %v", signature))
@@ -295,7 +458,7 @@ func (uasset *Uasset) Write(s *Serializer) {
 		s.Seek(int(uasset.Summary.ExportOffset+8), 0)
 		uexpSize := int32(uasset.Uexp.GetBinSize())
 		s.WriteInt32(uexpSize)
-		s.Seek(uasset.Summary.GetUassetEndOffset(), 0)
+		s.Seek(len(uasset.rawBin), 0)
 	}
 }
 

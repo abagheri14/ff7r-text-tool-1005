@@ -184,6 +184,17 @@ func (s *Serializer) ReadString() string {
 	return str
 }
 
+func (s *Serializer) ReadCString() string {
+	buf := make([]byte, 0, 64)
+	for {
+		b := s.Read(1)[0]
+		if b == 0 {
+			return string(buf)
+		}
+		buf = append(buf, b)
+	}
+}
+
 func (s *Serializer) ReadZenString() string {
 	bin := s.Read(2)
 	strlen := int32(bin[1]) + (int32(bin[0]&0x7F) << 8)
@@ -203,6 +214,10 @@ func GetStringBinSize(str string) int {
 	return size + 4 // buffer + buffer size (int32)
 }
 
+func GetCStringBinSize(str string) int {
+	return len(str) + 1
+}
+
 func (s *Serializer) WriteString(str string) {
 	if len(str) == 0 {
 		s.WriteNull()
@@ -217,6 +232,11 @@ func (s *Serializer) WriteString(str string) {
 		s.Write(buf)
 		s.Write([]byte{0, 0})
 	}
+}
+
+func (s *Serializer) WriteCString(str string) {
+	s.Write([]byte(str))
+	s.Write([]byte{0})
 }
 
 func ZenLengthBin(strlen int, isUTF16 bool) []byte {

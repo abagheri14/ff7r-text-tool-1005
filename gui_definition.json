@@ -5,7 +5,7 @@
         {
             "window_name": "ff7r-text-tool Export mode",
             "label": "Export",
-            "command": "ff7r-text-tool.exe %asset% -o %export_outdir% -f %format% %ignore%",
+            "command": "ff7r-text-tool.exe -o %export_outdir% -f %format% %ignore% %asset%",
             "show_last_line": true,
             "codepage": "utf8",
             "button": "Export",
@@ -31,8 +31,12 @@
                     "label": "Format",
                     "id": "format",
                     "items": [
-                        { "label": "csv" },
-                        { "label": "json" }
+                        {
+                            "label": "csv"
+                        },
+                        {
+                            "label": "json"
+                        }
                     ]
                 },
                 {
@@ -41,14 +45,14 @@
                     "id": "ignore",
                     "value": "-i",
                     "tooltip": "Ignores assets that have empty data.",
-                    "default": true
+                    "default": false
                 }
             ]
         },
         {
             "window_name": "ff7r-text-tool Import mode",
             "label": "Import",
-            "command": "ff7r-text-tool.exe %json% %asset% -o %import_outdir% -f %format% --mode import",
+            "command": "ff7r-text-tool.exe -o %import_outdir% -f %format% --mode import %json% %asset%",
             "show_last_line": true,
             "codepage": "utf8",
             "button": "Import",
@@ -82,8 +86,12 @@
                     "label": "Format",
                     "id": "format",
                     "items": [
-                        { "label": "csv" },
-                        { "label": "json" }
+                        {
+                            "label": "csv"
+                        },
+                        {
+                            "label": "json"
+                        }
                     ]
                 }
             ]
@@ -91,7 +99,7 @@
         {
             "window_name": "ff7r-text-tool Dualsub mode",
             "label": "Dualsub",
-            "command": "ff7r-text-tool.exe %lang1% %lang2% -o %outdir% -i --mode dualsub",
+            "command": "ff7r-text-tool.exe -o %outdir% -i --mode dualsub %lang1% %lang2%",
             "show_last_line": true,
             "codepage": "utf8",
             "button": "Dualsub",
@@ -129,7 +137,7 @@
         {
             "window_name": "ff7r-text-tool Resize Subtitle Box",
             "label": "Resize Subtitle Box",
-            "command": "ff7r-text-tool.exe %subtitle00% -o %outdir% --mode resize --width %width% --height %height%",
+            "command": "ff7r-text-tool.exe -o %outdir% --mode resize --width %width% --height %height% %subtitle00%",
             "show_last_line": true,
             "codepage": "utf8",
             "button": "Resize",

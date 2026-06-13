@@ -66,7 +66,15 @@ type Entry struct {
 }
 
 func (e *Entry) Read(s *Serializer) {
-	e.Id = s.ReadString()
+	e.ReadWithOptions(s, false)
+}
+
+func (e *Entry) ReadWithOptions(s *Serializer, rawId bool) {
+	if rawId {
+		e.Id = s.ReadCString()
+	} else {
+		e.Id = s.ReadString()
+	}
 	e.Text = s.ReadString()
 	subEntryCount := s.ReadUint32()
 	// Note: In the actual game assets, an entry has four sub entries at most.
@@ -83,7 +91,15 @@ func (e *Entry) Read(s *Serializer) {
 }
 
 func (e *Entry) Write(s *Serializer) {
-	s.WriteString(e.Id)
+	e.WriteWithOptions(s, false)
+}
+
+func (e *Entry) WriteWithOptions(s *Serializer, rawId bool) {
+	if rawId {
+		s.WriteCString(e.Id)
+	} else {
+		s.WriteString(e.Id)
+	}
 	s.WriteString(e.Text)
 	subEntryCount := len(e.SubEntries)
 	s.WriteUint32(uint32(subEntryCount))
@@ -105,8 +121,16 @@ func (e *Entry) CheckDuplication() {
 }
 
 func (e *Entry) GetBinSize() int {
+	return e.GetBinSizeWithOptions(false)
+}
+
+func (e *Entry) GetBinSizeWithOptions(rawId bool) int {
 	var size int = 4
-	size += GetStringBinSize(e.Id)
+	if rawId {
+		size += GetCStringBinSize(e.Id)
+	} else {
+		size += GetStringBinSize(e.Id)
+	}
 	size += GetStringBinSize(e.Text)
 	for _, se := range e.SubEntries {
 		size += se.GetBinSize()

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func PathExists(path string) bool {
@@ -20,6 +21,7 @@ func PathExists(path string) bool {
 }
 
 func GetFullPath(path string) string {
+	path = CleanPathArg(path)
 	if !PathExists(path) {
 		Throw(fmt.Errorf("path does not exist: %s", path))
 	}
@@ -28,6 +30,14 @@ func GetFullPath(path string) string {
 		Throw(err)
 	}
 	return newPath
+}
+
+func CleanPathArg(path string) string {
+	path = strings.TrimSpace(path)
+	if idx := strings.Index(path, "\" -"); idx >= 0 {
+		path = path[:idx]
+	}
+	return strings.TrimSuffix(path, "\"")
 }
 
 func PathIsDir(path string) bool {

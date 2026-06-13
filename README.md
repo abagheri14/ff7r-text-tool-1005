@@ -5,6 +5,9 @@ Text modding tool for FF7R trilogy.
 > [!warning]
 > This repository is still a WIP project. There might be tons of issues.
 
+This fork includes compatibility fixes for FF7R2 patch 1.005 `*_TxtRes.uasset`
+files, including assets whose text payload layout changed in the update.
+
 ## Features
 
 - Export text data from `*_TxtRes.uasset` as csv or json
@@ -15,9 +18,10 @@ Text modding tool for FF7R trilogy.
 
 - Executable is now smaller, faster, and safer than the python script.
 - Exported data has more reasonable format.
-- Missing entries now do not throw erros when importing.
+- Missing entries now do not throw errors when importing.
 - Supported CSV format.
 - Supported FF7R2 assets (that extracted from Fmodel).
+- Supported FF7R2 patch 1.005 text assets.
 
 ## How to use
 
@@ -35,15 +39,18 @@ Install [go 1.23.5](https://go.dev/doc/install). (I'm not sure if other versions
 Then, run the following commands in the git repository
 
 ```
-go get github.com/spf13/pflag
+go mod download
 go build -ldflags="-s -w" -trimpath
 ```
 
 ### Get GUI wrapper
 
 Download `Tuw-*-Windows10-x64.zip` from [here](https://github.com/matyalatte/tuw/releases).  
-Then, copy `Tuw.exe` to the git repository and rename it to `GUI.exe`.
+Then, copy `Tuw.exe` to the git repository and embed the GUI definition:
 
+```
+Tuw.exe merge -f -j gui_definition.json -e GUI.exe
+```
 
 ## CSV example
 
