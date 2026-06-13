@@ -39,9 +39,11 @@ jobs:
           body: |
             ## Changelog
 
-            - First Change
-            - Second Change
-          draft: true
+            - Added support for FF7R2 patch 1.005 text asset layouts.
+            - Fixed EOF errors when exporting updated `*_TxtRes.uasset` files.
+            - Export all assets by default in the GUI.
+            - Avoid Windows trailing-backslash path issues in GUI commands.
+          draft: false
           prerelease: false
 
   build:
@@ -55,7 +57,7 @@ jobs:
           go-version: 1.23.5
 
       - name: Install dependencies
-        run: go get github.com/spf13/pflag
+        run: go mod download
 
       - name: Build
         run: go build -ldflags="-s -w" -trimpath
